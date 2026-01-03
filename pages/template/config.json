@@ -1,6 +1,6 @@
 {
     "name": "Example Page",
-    "route": "/example",
+    "route": "/template",
     "cardColor": "#293cce",
     "author": {
         "name": "Dot Studios",
