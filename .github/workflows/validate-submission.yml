@@ -35,16 +35,30 @@ jobs:
           for FOLDER_NAME in $CHANGED_FOLDERS; do
             echo "--- Analyzing folder: $FOLDER_NAME ---"
             
+            if git ls-tree -d main pages/$FOLDER_NAME > /dev/null 2>&1 && [ ! -d "pages/$FOLDER_NAME" ]; then
+              echo "🗑️ Deletion detected for folder: $FOLDER_NAME"
+              
+              FIRST_OWNER=$(gh api "repos/${{ github.repository }}/commits?path=pages/$FOLDER_NAME&sha=main" --jq '.[-1].author.login')
+              
+              if [ "$FIRST_OWNER" != "null" ] && [ "$FIRST_OWNER" != "$PR_AUTHOR" ]; then
+                echo "::error::Access Denied! You cannot delete '$FOLDER_NAME' because it belongs to $FIRST_OWNER."
+                exit 1
+              fi
+              
+              echo "✅ Deletion authorized for $PR_AUTHOR."
+              continue # Salta la validazione JSON perché la cartella non c'è più
+            fi
+
             if git ls-tree -d main pages/$FOLDER_NAME > /dev/null 2>&1; then
-              # Ottiene il proprietario originale (primo commit assoluto)
               FIRST_OWNER=$(gh api "repos/${{ github.repository }}/commits?path=pages/$FOLDER_NAME&sha=main" --jq '.[-1].author.login')
 
               if [ "$FIRST_OWNER" != "null" ] && [ "$FIRST_OWNER" != "$PR_AUTHOR" ]; then
-                echo "::error::Access Denied! Folder '$FOLDER_NAME' belongs to $FIRST_OWNER and you are $PR_AUTHOR :/"
+                echo "::error::Access Denied! Folder '$FOLDER_NAME' belongs to $FIRST_OWNER."
                 exit 1
               fi
             fi
 
+            # 3. VALIDAZIONE JSON (Solo per nuovi inserimenti o modifiche)
             CONFIG_PATH="pages/$FOLDER_NAME/config.json"
             if [ ! -f "$CONFIG_PATH" ]; then
               echo "::error file=$CONFIG_PATH::config.json file is missing."
@@ -58,47 +72,41 @@ jobs:
             AUTH_URL=$(jq -r '.author.url' "$CONFIG_PATH")
             AUTH_PFP=$(jq -r '.author.pfp // empty' "$CONFIG_PATH")
             
+            # Uniqueness Name Check
             DUPLICATE_NAME=$(find pages/ -maxdepth 2 -name "config.json" ! -path "$CONFIG_PATH" -exec jq -r '.name' {} + | grep -Fx "$NAME" || true)
-            
             if [ -n "$DUPLICATE_NAME" ]; then
-              echo "::error file=$CONFIG_PATH::The name '$NAME' is already taken by another project. Please choose a unique name."
+              echo "::error file=$CONFIG_PATH::The name '$NAME' is already taken."
               exit 1
             fi
 
+            # Validation Rules
             if [ "$ROUTE" != "/$FOLDER_NAME" ]; then
-              echo "::error file=$CONFIG_PATH::The route '$ROUTE' in the JSON does not match the folder name '/$FOLDER_NAME'."
+              echo "::error file=$CONFIG_PATH::Route '$ROUTE' must match folder '/$FOLDER_NAME'."
               exit 1
             fi
 
             if [ "$NAME" == "null" ] || [ -z "$NAME" ]; then
-              echo "::error file=$CONFIG_PATH::The 'name' field is empty or missing."
+              echo "::error file=$CONFIG_PATH::'name' field is missing."
               exit 1
             fi
 
             if [ -n "$CARD_COLOR" ] && [ "$CARD_COLOR" != "null" ]; then
               if [[ ! "$CARD_COLOR" =~ ^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$ ]]; then
-                echo "::error file=$CONFIG_PATH::cardColor '$CARD_COLOR' is not a valid HEX color (e.g., #ffffff or #fff)."
+                echo "::error file=$CONFIG_PATH::Invalid HEX color."
                 exit 1
               fi
-            fi
-
-            if [ "$AUTH_NAME" == "null" ] || [ -z "$AUTH_NAME" ]; then
-              echo "::error file=$CONFIG_PATH::The 'author.name' field is empty or missing."
-              exit 1
             fi
 
             if [ -n "$AUTH_PFP" ] && [ "$AUTH_PFP" != "null" ]; then
               if [[ ! "$AUTH_PFP" =~ ^https?:// ]]; then
-                echo "::error file=$CONFIG_PATH::'author.pfp' must be a valid URL (http/https)."
+                echo "::error file=$CONFIG_PATH::Invalid PFP URL."
                 exit 1
               fi
             fi
 
-            if [ -n "$AUTH_URL" ] && [ "$AUTH_URL" != "null" ]; then
-              if [[ ! "$AUTH_URL" =~ ^https?:// ]]; then
-                echo "::error file=$CONFIG_PATH::'author.url' must be a valid URL (http/https)."
-                exit 1
-              fi
+            if [[ ! "$AUTH_URL" =~ ^https?:// ]]; then
+              echo "::error file=$CONFIG_PATH::Invalid author URL."
+              exit 1
             fi
             
             echo "✅ Validation successful for $FOLDER_NAME."
@@ -118,11 +126,10 @@ jobs:
               repo: context.repo.repo,
               body: `⚠️ **Validation Failed!**
 
-            Hi @${context.payload.pull_request.user.login}, your submission could not be processed for the following reasons:
-            - You might be trying to modify a folder created by another user.
-            - There are errors in your folder structure or \`config.json\` format.
+            Hi @${context.payload.pull_request.user.login}, your submission could not be processed:
+            - **Ownership**: You cannot modify or delete a folder created by someone else.
+            - **Missing/Invalid**: Check your \`config.json\` or folder structure.
 
             ---
-            📖 **[Check the correct formatting here](${readmeUrl})** (Documentation)
-            🔍 **[View the error logs](${runUrl})** (Technical details)`
+            📖 **[Formatting Guide](${readmeUrl})** | 🔍 **[Error Details](${runUrl})**`
             })
