@@ -1,0 +1,10 @@
+{
+    "name": "Example Page",
+    "route": "/example",
+    "cardColor": "#293cce",
+    "author": {
+        "name": "Dot Studios",
+        "pfp": "https://dotstudios.net/assets/logo.png",
+        "url": "https://dotstudios.net"
+    }
+}
